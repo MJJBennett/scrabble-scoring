@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
 
-import subprocess
-import json
-import random
-import os
+import subprocess, json, random, os, sys
 from os.path import isfile, join, basename
-import sys
 
 # Loads json safely
 def safe_load_json(path):
-    if isfile(path):
+    if path is not None and isfile(path):
         with open(path, 'r') as jf:
             return json.load(jf)
     return {}
@@ -116,6 +112,15 @@ def main():
         player_names[name] = 0
     s = SoundHandler(player_names, config)
     game_loop(player_names, config, s)
+
+class GameState:
+    def __init__(self, source_file=None, config=None):
+        self.state_ = safe_load_json(source_file)
+        self.config_ = config
+    def dump_to_temp(self, temp="temp/state_dump.tmp"):
+        os.makedirs(os.path.dirname(temp), exist_ok=True)
+        with open(temp, "w") as tempfile:
+            json.dump(self.state_, tempfile, indent=2)
 
 def game_loop(player_names, config, s):
     rounds = 0
