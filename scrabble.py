@@ -105,6 +105,15 @@ def main():
             config.debug = True 
             continue
     config = parse_config(config)
+    # We have parsed configuration - Now what do we want to do?
+    selection = input("[N]ew Game | [L]oad Game: ")
+    if selection.lower() in ['new', 'n', 'new game']:
+        # Create a new game:
+        gs = GameState(None, config)
+    elif selection.lower() in ['load', 'l', 'load game']:
+        gs = GameState(input('Filename: '), config)
+    else:
+        sys.exit("Failed to create game state.")
     players = int(input('Number of players: '))
     player_names = {}
     for i in range(1, players+1):
