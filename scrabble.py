@@ -18,6 +18,11 @@ def print_scores(player_names):
     scores_str += '|'
     print(scores_str)
 
+# Utility function - Sets a default
+def default(d, k, v):
+    if k not in d:
+        d[k] = v
+
 # Holds configuration
 class Config:
     def __init__(self):
@@ -69,28 +74,41 @@ class SoundHandler:
         self.is_init_ = False
         
     def initialize(self, pfile, players):
+        self.config.write("Initializing sounds from file:", pfile)
+
         # pfile is guaranteed to be a legitimate file
         with open(pfile, "r") as scfile:
-            data = json.load(scfile)
-        # we do everything case-insensitive to make things easier
-        players = [p.lower() for p in players]
-        for data_key in data:
-            if data_key.lower() in players:
-                self.sounds_[data_key.lower()] = data[data_key]
+            self.sounds_ = json.load(scfile)
         
-    def play(self, player, kind):
-        key = player.lower()
-        self.config.write("Attempting to play:", key, kind)
-        if key not in self.sounds_:
-            self.config.write(key, "not in sounds.")
+    def play(self, kind, key=None, player=None):
+        player = player.lower() if player is not None else None
+        self.config.write("play() called with kind:", kind, "| player:",
+                          player, "| key:", key)
+
+        lookup = self.sounds_
+        json_path = "sounds"
+        if player is not None:
+            if "players" not in lookup:
+                self.config.write('"players" is not in sounds.')
+                return
+            lookup = lookup["players"]
+            json_path += '["players"]'
+            key = player
+
+        if key not in lookup:
+            self.config.write(key, "not in", json_path)
             return
-        if kind not in self.sounds_[key]:
-            self.config.write(kind, "not in sounds[" + key + "]")
+        json_path += '["' + key + '"]'
+        lookup = lookup[key]
+
+        if kind not in lookup:
+            self.config.write(kind, "not in", json_path)
             return
-        if not self.sounds_[key][kind]:
-            self.config.write(kind, "is in sounds[" + key + "]", "but has no values. Not playing.")
+        if not lookup[kind]:
+            self.config.write(kind, "is in", json_path + ", but has no values. Not playing.")
             return
-        sp = random.choice(self.sounds_[key][kind])
+        self.config.write("Choosing from:", lookup[kind])
+        sp = random.choice(lookup[kind])
         self.config.write("Playing:", sp)
         self.run_sound(["afplay", sp])
 
@@ -114,7 +132,14 @@ def main():
         gs = GameState(input('Filename: '), config)
     else:
         sys.exit("Failed to create game state.")
-    players = int(input('Number of players: '))
+    players = None
+    while players is None:
+        try:
+            players = int(input('Number of players: '))
+        except:
+            print("Could not understand the input -",
+                  "please input the number of players.")
+            players = None
     player_names = {}
     for i in range(1, players+1):
         name = input('Player #' + str(i) + ' name: ')
@@ -126,10 +151,18 @@ class GameState:
     def __init__(self, source_file=None, config=None):
         self.state_ = safe_load_json(source_file)
         self.config_ = config
+        default(self.state_, "num_players", 0)
+        default(self.state_, "players", {})
+        default(self.state_, "num_rounds", 0)
     def dump_to_temp(self, temp="temp/state_dump.tmp"):
         os.makedirs(os.path.dirname(temp), exist_ok=True)
         with open(temp, "w") as tempfile:
             json.dump(self.state_, tempfile, indent=2)
+    def save(self, name):
+        name = os.path.join(".saves/", name)
+        os.makedirs(os.path.dirname(name), exist_ok=True)
+        with open(temp, "w") as file:
+            json.dump(self.state_, file, indent=2)
 
 def game_loop(player_names, config, s):
     rounds = 0
@@ -140,28 +173,30 @@ def game_loop(player_names, config, s):
         for key in player_names:
             print_scores(player_names)
             score = input('Score for ' + key + ': ')
-            if score in ['quit', 'exit', 'qu', 'ex']:
-                not_quit = False
-                break
-            if score in ['quitnoscore', 'qns']:
-                not_quit = False
-                noscore = True
-                break
-            else:
-                try:
-                    prev = player_names[key]
-                    player_names[key] += int(score)
-                    hs = prev   
-                    isg = False
-                    for key2 in player_names:
-                        if key2 != key:
-                            if player_names[key2] >= hs:
-                                isg = True
-                                hs = player_names[key2]
-                    if player_names[key] > hs and isg:
-                        s.play(key, SoundHandler.get_lead)
-                except ValueError:
-                    print('Failed to accept the score entered. Please repeat.')
+            try:
+                score = int(score)
+            except ValueError:
+                if score in ['quit', 'exit', 'qu', 'ex']:
+                    not_quit = False
+                    break
+                if score in ['quitnoscore', 'qns']:
+                    not_quit = False
+                    noscore = True
+                    break
+                print("Could not understand input command:", score)
+                continue
+            prev = player_names[key]
+            player_names[key] += int(score)
+            hs = prev   
+            isg = False
+            for key2 in player_names:
+                if key2 != key:
+                    if player_names[key2] >= hs:
+                        isg = True
+                        hs = player_names[key2]
+            if player_names[key] > hs and isg:
+                # Play 'takes the lead' sort of sound
+                s.play(SoundHandler.get_lead, player=key)
 
     hs = 0
     hp = "Nobody"
@@ -169,7 +204,7 @@ def game_loop(player_names, config, s):
         if player_names[pn] > hs:
             hp = pn
             hs = player_names[pn]
-    s.play(hp, SoundHandler.win_game)
+    s.play(SoundHandler.win_game, player=hp)
 
     print(str(player_names))
     print('Rounds: ' + str(rounds))
