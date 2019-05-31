@@ -3,6 +3,10 @@
 import subprocess, json, random, os, sys
 from os.path import isfile, join, basename
 
+# Gets a boolean value from the user
+def get_bool_input(string):
+    return input(string + " [y/n]: ").lower() in ['y', 'yes', 't', 'true']
+
 # Loads json safely
 def safe_load_json(path):
     if path is not None and isfile(path):
@@ -69,9 +73,22 @@ class SoundHandler:
             if isfile(pfile):
                 self.initialize(pfile, players)
                 self.is_init_ = True
+                self.players = players
+                self.pfile = pfile
                 return
+        self.players = None
+        self.pfile = None
         config.write("Could not find a working sound file.")
         self.is_init_ = False
+
+    def reload(self):
+        if not self.is_init_:
+            self.config.write("Sound could not be reloaded; not loaded in the first place.")
+        else:
+            if not isfile(self.pfile):
+                self.config.write("Sound could not be reloaded; file is missing or removed.")
+            else:
+                self.initialize(self.pfile, self.players)
         
     def initialize(self, pfile, players):
         self.config.write("Initializing sounds from file:", pfile)
@@ -145,7 +162,7 @@ def main():
         name = input('Player #' + str(i) + ' name: ')
         player_names[name] = 0
     s = SoundHandler(player_names, config)
-    game_loop(player_names, config, s)
+    run_game(player_names, config, s)
 
 class GameState:
     def __init__(self, source_file=None, config=None):
@@ -164,11 +181,42 @@ class GameState:
         with open(temp, "w") as file:
             json.dump(self.state_, file, indent=2)
 
+def get_winner(player_names):
+    hs = 0
+    hp = "Nobody"
+    for pn in player_names:
+        if player_names[pn] > hs:
+            hp = pn
+            hs = player_names[pn]
+    return [hp, hs]
+
+def run_game(player_names, config, s):
+    rounds = game_loop(player_names, config, s)
+
+    winner = get_winner(player_names)
+    s.play(SoundHandler.win_game, player=winner[0])
+
+    print(str(player_names))
+    print('Rounds: ' + str(rounds))
+
+    if get_bool_input("Would you like to record this game?"):
+        data = safe_load_json('scores.json')
+
+        game_name = None
+        while game_name is None or game_name in data:
+            game_name = input('Enter a name for this game: ')
+
+        data[game_name] = player_names
+        data[game_name]['Number of rounds'] = rounds
+
+        with open('scores.json', 'w') as file:
+            json.dump(data, file, indent=2)
+
+    print("Congratulations to Andrew for his stunning victory!")
+
 def game_loop(player_names, config, s):
     rounds = 0
-    not_quit = True
-    noscore = False
-    while not_quit:
+    while True:
         rounds += 1
         for key in player_names:
             print_scores(player_names)
@@ -176,13 +224,14 @@ def game_loop(player_names, config, s):
             try:
                 score = int(score)
             except ValueError:
-                if score in ['quit', 'exit', 'qu', 'ex']:
-                    not_quit = False
-                    break
-                if score in ['quitnoscore', 'qns']:
-                    not_quit = False
-                    noscore = True
-                    break
+                # Command input
+                command = score.lower()
+                if command in ['quit', 'exit', 'qu', 'ex']:
+                    return
+                if command.startswith('sr'):
+                    print("Reloading sounds.")
+                    s.reload()
+                    continue
                 print("Could not understand input command:", score)
                 continue
             prev = player_names[key]
@@ -197,32 +246,8 @@ def game_loop(player_names, config, s):
             if player_names[key] > hs and isg:
                 # Play 'takes the lead' sort of sound
                 s.play(SoundHandler.get_lead, player=key)
+    return rounds
 
-    hs = 0
-    hp = "Nobody"
-    for pn in player_names:
-        if player_names[pn] > hs:
-            hp = pn
-            hs = player_names[pn]
-    s.play(SoundHandler.win_game, player=hp)
-
-    print(str(player_names))
-    print('Rounds: ' + str(rounds))
-
-    if not noscore:
-        data = safe_load_json('scores.json')
-
-        game_name = None
-        while game_name is None or game_name in data:
-            game_name = input('Enter a name for this game: ')
-
-        data[game_name] = player_names
-        data[game_name]['Number of rounds'] = rounds
-
-        with open('scores.json', 'w') as file:
-            json.dump(data, file, indent=2)
-
-    print("Congratulations to Andrew for his stunning victory!")
 
 if __name__ == "__main__":
     main()
