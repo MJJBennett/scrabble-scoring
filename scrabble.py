@@ -74,6 +74,7 @@ class SoundHandler:
     win_game = "win_game"
     lose_game = "lose_game"
     tie = "tie_score"
+    large_score = "big_score"
 
     def __init__(self, players, config):
         self.sounds_ = {}
@@ -293,6 +294,10 @@ def game_loop(player_names, config, s):
                 player_names[key] += score
                 # The player's score, post-modifications
                 curr = player_names[key]
+                # Play a sound if the score is large
+                if score > 55:
+                    s.play(SoundHandler.large_score, key="scores")
+
                 if hs != 0 and curr == get_hs(player_names) and curr > hs and (prev < hs or
                         value_in(prev, player_names)):
                     # Play 'takes the lead' sort of sound
