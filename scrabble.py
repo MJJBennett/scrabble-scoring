@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 
-import subprocess, json, random, os, sys
+import subprocess, json, random, os, sys, re
+from enum import Enum
 from os.path import isfile, join, basename
 
 # Gets a boolean value from the user
 def get_bool_input(string):
     return input(string + " [y/n]: ").lower() in ['y', 'yes', 't', 'true']
+
+# Checks if a value is in a dictionary (not a key)
+def value_in(value, dictionary):
+    for k in dictionary:
+        if dictionary[k] == value:
+            return True
+    return False
 
 # Loads json safely
 def safe_load_json(path):
@@ -65,6 +73,7 @@ class SoundHandler:
     lose_lead = "lose_lead"
     win_game = "win_game"
     lose_game = "lose_game"
+    tie = "tie_score"
 
     def __init__(self, players, config):
         self.sounds_ = {}
@@ -128,6 +137,7 @@ class SoundHandler:
         sp = random.choice(lookup[kind])
         self.config.write("Playing:", sp)
         self.run_sound(["afplay", sp])
+        self.config.write(". . . Finished playing sound.")
 
     def run_sound(self, sound):
         subprocess.call(sound)
@@ -136,7 +146,7 @@ class SoundHandler:
 def main():
     config = Config()
     for arg in sys.argv:
-        if arg in ['-d', '--debug']:
+        if re.match(r'--?v(erbose)?', arg) is not None:
             config.debug = True 
             continue
     config = parse_config(config)
@@ -181,6 +191,13 @@ class GameState:
         with open(temp, "w") as file:
             json.dump(self.state_, file, indent=2)
 
+def get_hs(ledict):
+    hs = 0
+    for k in ledict:
+        if ledict[k] > hs:
+            hs = ledict[k]
+    return hs
+
 def get_winner(player_names):
     hs = 0
     hp = "Nobody"
@@ -191,12 +208,18 @@ def get_winner(player_names):
     return [hp, hs]
 
 def run_game(player_names, config, s):
+    config.write("Starting game.")
     rounds = game_loop(player_names, config, s)
+    config.write("Game completed with", rounds, "rounds.")
 
     winner = get_winner(player_names)
+    config.write("Winner calculated:", winner, "- playing sound.")
     s.play(SoundHandler.win_game, player=winner[0])
+    config.write("Finished playing sound.")
 
-    print(str(player_names))
+    print("Final scores:")
+    for n in player_names:
+        print('\t' + str(n) + ":", player_names[n])
     print('Rounds: ' + str(rounds))
 
     if get_bool_input("Would you like to record this game?"):
@@ -214,38 +237,78 @@ def run_game(player_names, config, s):
 
     print("Congratulations to Andrew for his stunning victory!")
 
+class InputWrapper:
+    def __init__(self, command=None, score=None):
+        self.command = command
+        self.score = score
+    def is_command(self):
+        return self.command is not None
+    def is_score(self):
+        return self.score is not None
+    def get_command(self):
+        return self.command
+    def get_score(self):
+        return self.score
+    def is_cm(self, command):
+        return self.command is not None and self.command == command
+
+class cm(Enum):
+    UNKNOWN = 0
+    QUIT = 1
+    RELOAD_SOUNDS = 2
+
+def get_next_score(player_names, key, config):
+    print_scores(player_names)
+    score = input('Score for ' + key + ': ')
+    try:
+        score = int(score)
+        # It was a normal score, return it
+        config.write("Returning normal score:", score)
+        return InputWrapper(score=score)
+    except ValueError:
+        # Command input
+        config.write("Got a potential command:", score)
+        command = score.lower()
+        if command in ['quit', 'exit', 'qu', 'ex']:
+            return InputWrapper(command=cm.QUIT)
+        elif command.startswith('sr'):
+            print("Reloading sounds.")
+            return InputWrapper(command=cm.RELOAD_SOUNDS)
+        else:
+            return InputWrapper(command=cm.UNKNOWN)
+
 def game_loop(player_names, config, s):
     rounds = 0
     while True:
         rounds += 1
         for key in player_names:
-            print_scores(player_names)
-            score = input('Score for ' + key + ': ')
-            try:
-                score = int(score)
-            except ValueError:
-                # Command input
-                command = score.lower()
-                if command in ['quit', 'exit', 'qu', 'ex']:
+            score = get_next_score(player_names, key, config)
+            if score.is_score():
+                # The score entered
+                score = score.get_score()
+                # The high score, before modifications
+                hs = get_hs(player_names) 
+                # The player's score, before modifications
+                prev = player_names[key]
+                player_names[key] += score
+                # The player's score, post-modifications
+                curr = player_names[key]
+                if hs != 0 and curr == get_hs(player_names) and curr > hs and (prev < hs or
+                        value_in(prev, player_names)):
+                    # Play 'takes the lead' sort of sound
+                    s.play(SoundHandler.get_lead, player=key)
+                elif hs == curr:
+                    # We're now tied
+                    s.play(SoundHandler.tie, key="scores")
+            else:
+                cmd = score.get_command()
+                if cmd == cm.QUIT:
                     return
-                if command.startswith('sr'):
-                    print("Reloading sounds.")
+                elif cmd == cm.RELOAD_SOUNDS:
                     s.reload()
                     continue
-                print("Could not understand input command:", score)
-                continue
-            prev = player_names[key]
-            player_names[key] += int(score)
-            hs = prev   
-            isg = False
-            for key2 in player_names:
-                if key2 != key:
-                    if player_names[key2] >= hs:
-                        isg = True
-                        hs = player_names[key2]
-            if player_names[key] > hs and isg:
-                # Play 'takes the lead' sort of sound
-                s.play(SoundHandler.get_lead, player=key)
+                else:
+                    print("Could not understand input command:", score)
     return rounds
 
 
