@@ -239,9 +239,10 @@ def run_game(player_names, config, s):
     print("Congratulations to Andrew for his stunning victory!")
 
 class InputWrapper:
-    def __init__(self, command=None, score=None):
+    def __init__(self, command=None, score=None, raw=None):
         self.command = command
         self.score = score
+        self.raw = raw
     def is_command(self):
         return self.command is not None
     def is_score(self):
@@ -250,6 +251,8 @@ class InputWrapper:
         return self.command
     def get_score(self):
         return self.score
+    def get_raw(self):
+        return self.raw
     def is_cm(self, command):
         return self.command is not None and self.command == command
 
@@ -276,7 +279,7 @@ def get_next_score(player_names, key, config):
             print("Reloading sounds.")
             return InputWrapper(command=cm.RELOAD_SOUNDS)
         else:
-            return InputWrapper(command=cm.UNKNOWN)
+            return InputWrapper(command=cm.UNKNOWN, raw=score)
 
 def game_loop(player_names, config, s):
     rounds = 0
@@ -302,18 +305,18 @@ def game_loop(player_names, config, s):
                         value_in(prev, player_names)):
                     # Play 'takes the lead' sort of sound
                     s.play(SoundHandler.get_lead, player=key)
-                elif hs == curr:
+                elif hs == curr and score != 0:
                     # We're now tied
                     s.play(SoundHandler.tie, key="scores")
             else:
                 cmd = score.get_command()
                 if cmd == cm.QUIT:
-                    return
+                    return rounds
                 elif cmd == cm.RELOAD_SOUNDS:
                     s.reload()
                     continue
                 else:
-                    print("Could not understand input command:", score)
+                    print("Could not understand input command:", score.get_raw())
     return rounds
 
 
