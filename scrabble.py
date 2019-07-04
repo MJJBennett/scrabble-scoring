@@ -2,25 +2,7 @@
 
 import subprocess, json, random, os, sys, re
 from enum import Enum
-from os.path import isfile, join, basename
-
-# Gets a boolean value from the user
-def get_bool_input(string):
-    return input(string + " [y/n]: ").lower() in ['y', 'yes', 't', 'true']
-
-# Checks if a value is in a dictionary (not a key)
-def value_in(value, dictionary):
-    for k in dictionary:
-        if dictionary[k] == value:
-            return True
-    return False
-
-# Loads json safely
-def safe_load_json(path):
-    if path is not None and isfile(path):
-        with open(path, 'r') as jf:
-            return json.load(jf)
-    return {}
+from tools import *
 
 # Utility function - Prints scores
 def print_scores(player_names):
@@ -30,16 +12,12 @@ def print_scores(player_names):
     scores_str += '|'
     print(scores_str)
 
-# Utility function - Sets a default
-def default(d, k, v):
-    if k not in d:
-        d[k] = v
-
 # Holds configuration
 class Config:
     def __init__(self):
         self.debug = False
         self.sound_files = []
+        self.sound_file = None
     def write(self, *args, **kwargs):
         if self.debug:
             print(*args, **kwargs)
@@ -65,6 +43,10 @@ def parse_config(config):
         config.write("Searching for sound files in:", config.sound_files)
     else:
         config.write("Could not find a path for sound file configuration.")
+    for pfile in config.sound_files:
+        if isfile(pfile):
+            config.sound_file = pfile
+            break
     return config
 
 # Plays sounds for events
@@ -79,13 +61,12 @@ class SoundHandler:
     def __init__(self, players, config):
         self.sounds_ = {}
         self.config = config
-        for pfile in config.sound_files:
-            if isfile(pfile):
-                self.initialize(pfile, players)
-                self.is_init_ = True
-                self.players = players
-                self.pfile = pfile
-                return
+        if config.sound_file is not None:
+            self.initialize(config.sound_file, players)
+            self.is_init_ = True
+            self.players = players
+            self.pfile = config.sound_file
+            return
         self.players = None
         self.pfile = None
         config.write("Could not find a working sound file.")
@@ -173,7 +154,7 @@ def main():
         name = input('Player #' + str(i) + ' name: ')
         player_names[name] = 0
     s = SoundHandler(player_names, config)
-    run_game(player_names, config, s)
+    run_game(player_names, config, s, state=gs)
 
 class GameState:
     def __init__(self, source_file=None, config=None):
@@ -182,15 +163,19 @@ class GameState:
         default(self.state_, "num_players", 0)
         default(self.state_, "players", {})
         default(self.state_, "num_rounds", 0)
+        default(self.state_, "cur_pos", 0)
+        default(self.state_, "ordered_players", [k for k in self.state_["players"]])
     def dump_to_temp(self, temp="temp/state_dump.tmp"):
         os.makedirs(os.path.dirname(temp), exist_ok=True)
         with open(temp, "w") as tempfile:
+            self.config_.write("Saved state to temporary file:", temp, "| Beware of overwriting it.")
             json.dump(self.state_, tempfile, indent=2)
     def save(self, name):
         name = os.path.join(".saves/", name)
         os.makedirs(os.path.dirname(name), exist_ok=True)
         with open(temp, "w") as file:
             json.dump(self.state_, file, indent=2)
+
 
 def get_hs(ledict):
     hs = 0
@@ -208,9 +193,9 @@ def get_winner(player_names):
             hs = player_names[pn]
     return [hp, hs]
 
-def run_game(player_names, config, s):
+def run_game(player_names, config, s, state=None):
     config.write("Starting game.")
-    rounds = game_loop(player_names, config, s)
+    rounds = game_loop(player_names, config, s, state)
     config.write("Game completed with", rounds, "rounds.")
 
     winner = get_winner(player_names)
@@ -281,7 +266,7 @@ def get_next_score(player_names, key, config):
         else:
             return InputWrapper(command=cm.UNKNOWN, raw=score)
 
-def game_loop(player_names, config, s):
+def game_loop(player_names, config, s, state):
     rounds = 0
     while True:
         rounds += 1
