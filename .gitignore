@@ -1,6 +1,7 @@
 *.json
 *.ignore
 *.m4a
+*.mp3
 *.aifc
 __pycache__/
 
