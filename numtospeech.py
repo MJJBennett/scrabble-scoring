@@ -14,6 +14,9 @@ def is_integer(n):
         return False
 
 def speak_number_unsafe(n, config):
+    if not config.speak_scores:
+        config.write("Speaking sounds is disabled; opting to not speak sounds.")
+        return True
     if not is_integer(n):
         return False
     if int(n) > max_num():
@@ -49,7 +52,8 @@ def speak_number_unsafe(n, config):
 def speak_number(n, c):
     try:
         return speak_number_unsafe(n, c)
-    except:
+    except Exception as e:
+        c.write(e)
         return False
 
 if __name__ == '__main__':

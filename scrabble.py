@@ -3,11 +3,15 @@
 import subprocess, json, random, os, sys, re
 from enum import Enum
 from tools import *
+from numtospeech import *
 
 # Utility function - Prints scores
-def print_scores(player_names):
+def print_scores(player_names, c):
     scores_str = ''
     for key in player_names:
+        c.set_prefix("speak_number >>")
+        speak_number(int(player_names[key]), c)
+        c.unset_prefix()
         scores_str += '| ' + key + ': ' + str(player_names[key]) + ' '
     scores_str += '|'
     print(scores_str)
@@ -18,9 +22,19 @@ class Config:
         self.debug = False
         self.sound_files = []
         self.sound_file = None
+        self.speak_scores = False
+        self.prefix = None
     def write(self, *args, **kwargs):
         if self.debug:
-            print(*args, **kwargs)
+            if self.prefix is not None:
+                print(self.prefix, *args, **kwargs)
+            else:
+                print(*args, **kwargs)
+
+    def set_prefix(self, prefix):
+        self.prefix = prefix
+    def unset_prefix(self):
+        self.prefix = None
 
     @staticmethod
     def populate_paths(path):
@@ -129,6 +143,9 @@ def main():
     config = Config()
     for arg in sys.argv:
         if re.match(r'--?v(erbose)?', arg) is not None:
+            config.debug = True 
+            continue
+        if re.match(r'--?d(ebug)?', arg) is not None:
             config.debug = True 
             continue
     config = parse_config(config)
@@ -245,9 +262,10 @@ class cm(Enum):
     UNKNOWN = 0
     QUIT = 1
     RELOAD_SOUNDS = 2
+    CONFIG_MODIFIED = 3
 
 def get_next_score(player_names, key, config):
-    print_scores(player_names)
+    print_scores(player_names, config)
     score = input('Score for ' + key + ': ')
     try:
         score = int(score)
@@ -263,6 +281,14 @@ def get_next_score(player_names, key, config):
         elif command.startswith('sr'):
             print("Reloading sounds.")
             return InputWrapper(command=cm.RELOAD_SOUNDS)
+        elif command.startswith('ss'):
+            config.write("Speaking scores.")
+            config.speak_scores = True
+            return InputWrapper(command=cm.CONFIG_MODIFIED)
+        elif command.startswith('nss'):
+            config.write("Not speaking scores.")
+            config.speak_scores = False
+            return InputWrapper(command=cm.CONFIG_MODIFIED)
         else:
             return InputWrapper(command=cm.UNKNOWN, raw=score)
 
@@ -271,37 +297,40 @@ def game_loop(player_names, config, s, state):
     while True:
         rounds += 1
         for key in player_names:
-            score = get_next_score(player_names, key, config)
-            if score.is_score():
-                # The score entered
-                score = score.get_score()
-                # The high score, before modifications
-                hs = get_hs(player_names) 
-                # The player's score, before modifications
-                prev = player_names[key]
-                player_names[key] += score
-                # The player's score, post-modifications
-                curr = player_names[key]
-                # Play a sound if the score is large
-                if score > 55:
-                    s.play(SoundHandler.large_score, key="scores")
+            while True:
+                score = get_next_score(player_names, key, config)
+                if score.is_score():
+                    # The score entered
+                    score = score.get_score()
+                    # The high score, before modifications
+                    hs = get_hs(player_names) 
+                    # The player's score, before modifications
+                    prev = player_names[key]
+                    player_names[key] += score
+                    # The player's score, post-modifications
+                    curr = player_names[key]
+                    # Play a sound if the score is large
+                    if score > 55:
+                        s.play(SoundHandler.large_score, key="scores")
 
-                if hs != 0 and curr == get_hs(player_names) and curr > hs and (prev < hs or
-                        value_in(prev, player_names)):
-                    # Play 'takes the lead' sort of sound
-                    s.play(SoundHandler.get_lead, player=key)
-                elif hs == curr and score != 0:
-                    # We're now tied
-                    s.play(SoundHandler.tie, key="scores")
-            else:
-                cmd = score.get_command()
-                if cmd == cm.QUIT:
-                    return rounds
-                elif cmd == cm.RELOAD_SOUNDS:
-                    s.reload()
-                    continue
+                    if hs != 0 and curr == get_hs(player_names) and curr > hs and (prev < hs or
+                            value_in(prev, player_names)):
+                        # Play 'takes the lead' sort of sound
+                        s.play(SoundHandler.get_lead, player=key)
+                    elif hs == curr and score != 0:
+                        # We're now tied
+                        s.play(SoundHandler.tie, key="scores")
+                    break # Go to next turn
                 else:
-                    print("Could not understand input command:", score.get_raw())
+                    cmd = score.get_command()
+                    if cmd == cm.QUIT:
+                        return rounds
+                    elif cmd == cm.RELOAD_SOUNDS:
+                        s.reload()
+                        continue
+                    elif cmd == cm.UNKNOWN:
+                        print("Could not understand input command:", score.get_raw())
+                        continue
     return rounds
 
 
