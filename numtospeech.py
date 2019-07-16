@@ -37,7 +37,7 @@ def speak_number_unsafe(n, config):
 
     tn = l[-1] if (len(l) == 1 or l[-2] == 0) else (l[-2] * 10 + l[-1])
     # You could play the word "and" here if tn>0, but that takes valuable time
-    # So we'll avoid that (especially considered pre-existing gaps between numbers)
+    # So we'll avoid that (especially considering pre-existing gaps between numbers)
     if tn > 19:
         playlist.append(j["dixes"][str(l[-2])])
         playlist.append(j[str(l[-1])])
