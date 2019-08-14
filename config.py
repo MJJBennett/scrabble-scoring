@@ -4,13 +4,20 @@ import json
 # Holds configuration
 class Config:
     def __init__(self):
-        self.debug = False
+        self.debug_ = False
+        self.extreme_debug_ = False
         self.sound_files = []
         self.sound_file = None
         self.speak_scores = False
         self.prefix = None
     def write(self, *args, **kwargs):
-        if self.debug:
+        if self.debug_:
+            if self.prefix is not None:
+                print(self.prefix, *args, **kwargs)
+            else:
+                print(*args, **kwargs)
+    def debug(self, *args, **kwargs):
+        if self.extreme_debug_:
             if self.prefix is not None:
                 print(self.prefix, *args, **kwargs)
             else:

@@ -17,6 +17,52 @@ def print_scores(player_names, c):
     scores_str += '|'
     print(scores_str)
 
+class GameState:
+    def __init__(self, source_file=None, config=None):
+        self.state_ = safe_load_json(source_file)
+        self.config_ = config
+        default(self.state_, "num_players", None)
+        default(self.state_, "players", None)
+        default(self.state_, "num_rounds", 0)
+        default(self.state_, "cur_pos", 0)
+        default(self.state_, "ordered_players", [k for k in self.state_["players"]] if
+        self.state_["players"] is not None else None)
+    def dump_to_temp(self, temp="temp/state_dump.tmp"):
+        os.makedirs(os.path.dirname(temp), exist_ok=True)
+        with open(temp, "w") as tempfile:
+            self.config_.write("Saved state to temporary file:", temp, "| Beware of overwriting it.")
+            json.dump(self.state_, tempfile, indent=2)
+    def save(self, name):
+        name = os.path.join(".saves/", name)
+        os.makedirs(os.path.dirname(name), exist_ok=True)
+        with open(temp, "w") as file:
+            json.dump(self.state_, file, indent=2)
+    def get_num_players(self):
+        return self.state_["num_players"]
+    def set_num_players(self, num):
+        if self.get_num_players() is not None:
+            self.config_.write("Resetting number of players.")
+        self.state_["num_players"] = num
+    def get_players(self):
+        return self.state_["players"]
+    def set_players(self, players):
+        if self.get_players() is not None:
+            self.config_.write("Resetting players entirely.")
+        self.state_["players"] = players
+    def score_of(self, player):
+        return self.get_players()[player] if player in self.get_players() else -1
+    def set_score(self, player, score):
+        if self.state_["players"] is None:
+            self.state_["players"] = {}
+            self.config_.write("Creating 'players' dict.")
+        if player not in self.state_["players"]:
+            self.config_.write("Creating player: " + player)
+        self.state_["players"][player] = score
+    def get_rounds(self):
+        return self.state_["num_rounds"]
+    def new_round(self):
+        self.state_["num_rounds"] += 1
+
 # Plays sounds for events
 class SoundHandler:
     get_lead = "get_lead"
@@ -90,17 +136,20 @@ class SoundHandler:
         self.config.write(". . . Finished playing sound.")
 
     def run_sound(self, sound):
-        subprocess.call(sound)
+        subprocess.Popen(sound)
 
 # Gets game data before we begin
 def main():
     config = Config()
     for arg in sys.argv:
-        if re.match(r'--?v(erbose)?', arg) is not None:
-            config.debug = True 
+        if re.match(r'-+v(erbose)?', arg) is not None:
+            config.debug_ = True 
             continue
-        if re.match(r'--?d(ebug)?', arg) is not None:
-            config.debug = True 
+        if re.match(r'-+d(ebug)?', arg) is not None:
+            config.debug_ = True 
+            continue
+        if re.match(r'-+ed(ebug)?', arg) is not None:
+            config.extreme_debug_ = True 
             continue
     config = parse_config(config)
     # We have parsed configuration - Now what do we want to do?
@@ -112,40 +161,19 @@ def main():
         gs = GameState(input('Filename: '), config)
     else:
         sys.exit("Failed to create game state.")
-    players = None
-    while players is None:
+    while gs.get_num_players() is None:
         try:
-            players = int(input('Number of players: '))
+            n = int(input('Number of players: '))
+            gs.set_num_players(n)
         except:
             print("Could not understand the input -",
                   "please input the number of players.")
-            players = None
-    player_names = {}
-    for i in range(1, players+1):
-        name = input('Player #' + str(i) + ' name: ')
-        player_names[name] = 0
-    s = SoundHandler(player_names, config)
-    run_game(player_names, config, s, state=gs)
-
-class GameState:
-    def __init__(self, source_file=None, config=None):
-        self.state_ = safe_load_json(source_file)
-        self.config_ = config
-        default(self.state_, "num_players", 0)
-        default(self.state_, "players", {})
-        default(self.state_, "num_rounds", 0)
-        default(self.state_, "cur_pos", 0)
-        default(self.state_, "ordered_players", [k for k in self.state_["players"]])
-    def dump_to_temp(self, temp="temp/state_dump.tmp"):
-        os.makedirs(os.path.dirname(temp), exist_ok=True)
-        with open(temp, "w") as tempfile:
-            self.config_.write("Saved state to temporary file:", temp, "| Beware of overwriting it.")
-            json.dump(self.state_, tempfile, indent=2)
-    def save(self, name):
-        name = os.path.join(".saves/", name)
-        os.makedirs(os.path.dirname(name), exist_ok=True)
-        with open(temp, "w") as file:
-            json.dump(self.state_, file, indent=2)
+    if gs.get_players() is None:
+        for i in range(1, gs.get_num_players()+1):
+            name = input('Player #' + str(i) + ' name: ')
+            gs.set_score(name, 0)
+    s = SoundHandler(gs.get_players(), config)
+    run_game(config, s, state=gs)
 
 
 def get_hs(ledict):
@@ -164,20 +192,20 @@ def get_winner(player_names):
             hs = player_names[pn]
     return [hp, hs]
 
-def run_game(player_names, config, s, state=None):
+def run_game(config, s, state):
     config.write("Starting game.")
-    rounds = game_loop(player_names, config, s, state)
-    config.write("Game completed with", rounds, "rounds.")
+    game_loop(config, s, state)
+    config.write("Game completed with", state.get_rounds(), "rounds.")
 
-    winner = get_winner(player_names)
+    winner = get_winner(state.get_players())
     config.write("Winner calculated:", winner, "- playing sound.")
     s.play(SoundHandler.win_game, player=winner[0])
     config.write("Finished playing sound.")
 
     print("Final scores:")
-    for n in player_names:
-        print('\t' + str(n) + ":", player_names[n])
-    print('Rounds: ' + str(rounds))
+    for n in state.get_players():
+        print('\t' + str(n) + ":", state.score_of(n))
+    print('Rounds: ' + str(state.get_rounds()))
 
     if get_bool_input("Would you like to record this game?"):
         data = safe_load_json('scores.json')
@@ -186,8 +214,8 @@ def run_game(player_names, config, s, state=None):
         while game_name is None or game_name in data:
             game_name = input('Enter a name for this game: ')
 
-        data[game_name] = player_names
-        data[game_name]['Number of rounds'] = rounds
+        data[game_name] = state.get_players()
+        data[game_name]['Number of rounds'] = state.get_rounds()
 
         with open('scores.json', 'w') as file:
             json.dump(data, file, indent=2)
@@ -217,6 +245,7 @@ class cm(Enum):
     QUIT = 1
     RELOAD_SOUNDS = 2
     CONFIG_MODIFIED = 3
+    SAVE_GAME = 4
 
 def get_next_score(player_names, key, config):
     print_scores(player_names, config)
@@ -243,32 +272,37 @@ def get_next_score(player_names, key, config):
             config.write("Not speaking scores.")
             config.speak_scores = False
             return InputWrapper(command=cm.CONFIG_MODIFIED)
+        elif command.startswith('sg') or command.startswith('save'):
+            config.write("Saving game.")
+            return InputWrapper(command=cm.SAVE_GAME)
         else:
             return InputWrapper(command=cm.UNKNOWN, raw=score)
 
-def game_loop(player_names, config, s, state):
-    rounds = 0
+def game_loop(config, s, state):
+    config.debug("Entering game loop.")
     while True:
-        rounds += 1
-        for key in player_names:
+        state.new_round()
+        config.debug("Round:", state.get_rounds(), "| Beginning iteration.")
+        for key in state.get_players():
+            config.debug("> Scoring player:", key)
             while True:
-                score = get_next_score(player_names, key, config)
+                score = get_next_score(state.get_players(), key, config)
                 if score.is_score():
                     # The score entered
                     score = score.get_score()
                     # The high score, before modifications
-                    hs = get_hs(player_names) 
+                    hs = get_hs(state.get_players()) 
                     # The player's score, before modifications
-                    prev = player_names[key]
-                    player_names[key] += score
+                    prev = state.get_players()[key]
+                    state.get_players()[key] += score
                     # The player's score, post-modifications
-                    curr = player_names[key]
+                    curr = state.get_players()[key]
                     # Play a sound if the score is large
                     if score > 55:
                         s.play(SoundHandler.large_score, key="scores")
 
-                    if hs != 0 and curr == get_hs(player_names) and curr > hs and (prev < hs or
-                            value_in(prev, player_names)):
+                    if hs != 0 and curr == get_hs(state.get_players()) and curr > hs and (prev < hs or
+                            value_in(prev, state.get_players())):
                         # Play 'takes the lead' sort of sound
                         s.play(SoundHandler.get_lead, player=key)
                     elif hs == curr and score != 0:
@@ -278,14 +312,17 @@ def game_loop(player_names, config, s, state):
                 else:
                     cmd = score.get_command()
                     if cmd == cm.QUIT:
-                        return rounds
+                        return
                     elif cmd == cm.RELOAD_SOUNDS:
                         s.reload()
+                        continue
+                    elif cmd == cm.SAVE_GAME:
+                        state.dump_to_temp()
                         continue
                     elif cmd == cm.UNKNOWN:
                         print("Could not understand input command:", score.get_raw())
                         continue
-    return rounds
+    return
 
 
 if __name__ == "__main__":
